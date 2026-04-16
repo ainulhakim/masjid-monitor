@@ -1,0 +1,72 @@
+name: Build TV App APK
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'tv-app/**'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.19.0'
+        channel: 'stable'
+    
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Install dependencies
+      working-directory: ./tv-app
+      run: flutter pub get
+    
+    - name: Build APK (ARM64 for TV Box)
+      working-directory: ./tv-app
+      run: flutter build apk --target-platform android-arm64 --release
+    
+    - name: Build APK (Universal)
+      working-directory: ./tv-app
+      run: flutter build apk --release
+    
+    - name: Rename APK files
+      run: |
+        mkdir -p release
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        cp tv-app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk release/masjid-monitor-tv-arm64-${TIMESTAMP}.apk 2>/dev/null || cp tv-app/build/app/outputs/flutter-apk/app-release.apk release/masjid-monitor-tv-arm64-${TIMESTAMP}.apk
+        cp tv-app/build/app/outputs/flutter-apk/app-release.apk release/masjid-monitor-tv-universal-${TIMESTAMP}.apk
+        ls -lh release/
+        echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+    
+    - name: Upload APK artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: masjid-monitor-tv-apk-${{ env.TIMESTAMP }}
+        path: release/*.apk
+        retention-days: 90
+    
+    - name: Create Release (on main branch only)
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ github.run_number }}-${{ env.TIMESTAMP }}
+        name: Release v${{ github.run_number }} (${{ env.TIMESTAMP }})
+        files: release/*.apk
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
